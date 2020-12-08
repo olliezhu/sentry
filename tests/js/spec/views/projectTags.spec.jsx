@@ -1,7 +1,7 @@
 import React from 'react';
-import $ from 'jquery';
 
 import {mountWithTheme} from 'sentry-test/enzyme';
+import {mountGlobalModal} from 'sentry-test/modal';
 
 import ProjectTags from 'app/views/settings/projectTags';
 
@@ -68,7 +68,8 @@ describe('ProjectTags', function () {
     wrapper.find('Button').first().simulate('click');
 
     // Press confirm in modal
-    $(document.body).find('.modal button:contains("Confirm")').click();
+    const modal = await mountGlobalModal();
+    modal.find('Button[priority="primary"]').simulate('click');
 
     await tick(); // Wait for the handleDelete function
 
