@@ -121,9 +121,11 @@ function Tag({
 
 const TagWrapper = styled('span')`
   font-size: ${p => p.theme.fontSizeSmall};
+  max-width: 100%;
 `;
 
 const Background = styled('div')<{type: keyof Theme['tag']}>`
+  max-width: 100%;
   display: inline-flex;
   align-items: center;
   height: ${TAG_HEIGHT};

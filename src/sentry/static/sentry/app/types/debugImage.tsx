@@ -80,13 +80,13 @@ export type Candidate = {
 };
 
 // Debug Status
-enum ImageStackTraceInfo {
+export enum ImageStackTraceInfo {
   FOUND = 'found',
   UNUSED = 'unused',
   MISSING = 'missing',
   MALFORMED = 'malformed',
-  TIMEOUT = 'timeout',
   FETCHING_FAILED = 'fetching_failed',
+  TIMEOUT = 'timeout',
   OTHER = 'other',
 }
 

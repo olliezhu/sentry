@@ -20,9 +20,11 @@ import {Organization, Project} from 'app/types';
 import {BuiltinSymbolSource} from 'app/types/debugFiles';
 import {CandidateDownloadStatus, Image} from 'app/types/debugImage';
 
+import NotAvailable from '../notAvailable';
+import Stacktrace from '../stacktrace';
+
 import StacktraceStatusIcon from './candidate/stacktraceStatusIcon';
 import StatusTag from './candidate/statusTag';
-import NotAvailable from './notAvailable';
 import {INTERNAL_SOURCE, onCopy} from './utils';
 
 type Props = {
@@ -53,19 +55,21 @@ function Table({
 
       if (download.unwind) {
         stacktraces.push(
-          <Stacktrace key="stack-unwinding">
-            <StacktraceStatusIcon stacktraceInfo={download.unwind} />
-            {t('Stack unwinding')}
-          </Stacktrace>
+          <Stacktrace
+            key="stack-unwinding"
+            type="stack-unwinding"
+            icon={<StacktraceStatusIcon stacktraceInfo={download.unwind} />}
+          />
         );
       }
 
       if (download.debug) {
         stacktraces.push(
-          <Stacktrace key="symbolication">
-            <StacktraceStatusIcon stacktraceInfo={download.debug} />
-            {t('Symbolication')}
-          </Stacktrace>
+          <Stacktrace
+            key="symbolication"
+            type="symbolication"
+            icon={<StacktraceStatusIcon stacktraceInfo={download.debug} />}
+          />
         );
       }
 
@@ -301,13 +305,6 @@ const Stacktraces = styled('div')`
   font-size: ${p => p.theme.fontSizeSmall};
 `;
 
-const Stacktrace = styled('div')`
-  display: grid;
-  grid-template-columns: repeat(2, max-content);
-  grid-gap: ${space(0.75)};
-  align-items: center;
-`;
-
 // Features Column
 const FeaturesColumn = styled(StatusColumn)``;
 
@@ -316,4 +313,9 @@ const Features = styled(Stacktraces)`
   grid-column-gap: ${space(1)};
 `;
 
-const Feature = styled(Stacktrace)``;
+const Feature = styled('div')`
+  display: grid;
+  grid-template-columns: repeat(2, max-content);
+  grid-gap: ${space(0.75)};
+  align-items: center;
+`;

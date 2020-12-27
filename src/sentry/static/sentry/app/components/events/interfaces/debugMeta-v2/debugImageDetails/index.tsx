@@ -15,7 +15,8 @@ import {BuiltinSymbolSource, DebugFile} from 'app/types/debugFiles';
 import {CandidateDownloadStatus, Image} from 'app/types/debugImage';
 import theme from 'app/utils/theme';
 
-import NotAvailable from './notAvailable';
+import NotAvailable from '../notAvailable';
+
 import Table from './table';
 import {INTERNAL_SOURCE} from './utils';
 
@@ -26,8 +27,7 @@ type Props = AsyncComponent['props'] &
     projectId: Project['id'];
     organization: Organization;
     image: Image;
-    imageStartAddress: React.ReactElement | null;
-    imageEndAddress: React.ReactElement | null;
+    imageAddress: React.ReactElement | null;
     title?: string;
   };
 
@@ -152,10 +152,9 @@ class DebugFileDetails extends AsyncComponent<Props, State> {
       Body,
       Footer,
       closeModal,
-      title,
       image,
-      imageStartAddress,
-      imageEndAddress,
+      title,
+      imageAddress,
       organization,
       projectId,
     } = this.props;
@@ -173,17 +172,7 @@ class DebugFileDetails extends AsyncComponent<Props, State> {
           <Content>
             <GeneralInfo>
               <Label>{t('Address Range')}</Label>
-              <Value>
-                {imageStartAddress && imageEndAddress ? (
-                  <React.Fragment>
-                    {imageStartAddress}
-                    {' \u2013 '}
-                    {imageEndAddress}
-                  </React.Fragment>
-                ) : (
-                  <NotAvailable />
-                )}
-              </Value>
+              <Value>{imageAddress ?? <NotAvailable />}</Value>
 
               <Label coloredBg>{t('Debug ID')}</Label>
               <Value coloredBg>{debug_id}</Value>
@@ -214,7 +203,7 @@ class DebugFileDetails extends AsyncComponent<Props, State> {
               href="https://docs.sentry.io/platforms/native/data-management/debug-files/"
               external
             >
-              {'Read the docs'}
+              {t('Read the docs')}
             </Button>
             <Button onClick={closeModal}>{t('Close')}</Button>
           </ButtonBar>
