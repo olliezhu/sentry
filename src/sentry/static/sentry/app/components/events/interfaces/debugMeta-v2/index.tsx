@@ -8,22 +8,23 @@ import {
   ScrollbarPresenceParams,
 } from 'react-virtualized';
 import styled from '@emotion/styled';
-import isNil from 'lodash/isNil';
 
 import {openModal} from 'app/actionCreators/modal';
 import GuideAnchor from 'app/components/assistant/guideAnchor';
+import Button from 'app/components/button';
 import EmptyStateWarning from 'app/components/emptyStateWarning';
 import EventDataSection from 'app/components/events/eventDataSection';
 import {getImageRange, parseAddress} from 'app/components/events/interfaces/utils';
 import {Panel, PanelHeader} from 'app/components/panels';
 import QuestionTooltip from 'app/components/questionTooltip';
 import SearchBar from 'app/components/searchBar';
+import {IconWarning} from 'app/icons/iconWarning';
 import {t} from 'app/locale';
-import DebugMetaStore, {DebugMetaActions} from 'app/stores/debugMetaStore';
 import overflowEllipsis from 'app/styles/overflowEllipsis';
 import space from 'app/styles/space';
 import {Event, Organization, Project} from 'app/types';
 import {Image, ImageStackTraceInfo} from 'app/types/debugImage';
+import EmptyMessage from 'app/views/settings/components/emptyMessage';
 
 import StatusTag from './debugImage/statusTag';
 import DebugImage from './debugImage';
@@ -32,8 +33,9 @@ import Filter from './filter';
 import layout from './layout';
 import {combineStatus, getFileName, normalizeId} from './utils';
 
-const MIN_FILTER_LEN = 3;
 const PANEL_MAX_HEIGHT = 400;
+
+const cache = new CellMeasurerCache({fixedWidth: true, defaultHeight: 81});
 
 type FilterOptions = React.ComponentProps<typeof Filter>['options'];
 
@@ -59,11 +61,6 @@ type State = {
   scrollbarSize?: number;
 };
 
-const cache = new CellMeasurerCache({
-  fixedWidth: true,
-  defaultHeight: 81,
-});
-
 class DebugMeta extends React.PureComponent<Props, State> {
   static defaultProps: DefaultProps = {
     data: {images: []},
@@ -78,30 +75,17 @@ class DebugMeta extends React.PureComponent<Props, State> {
   };
 
   componentDidMount() {
-    this.unsubscribeFromStore = DebugMetaStore.listen(this.onStoreChange, undefined);
     cache.clearAll();
-    this.filterImages();
+    this.getRelevantImages();
   }
 
   componentDidUpdate(_prevProps: Props, prevState: State) {
-    if (prevState.searchTerm !== this.state.searchTerm) {
-      this.filterImages();
-    }
-
     if (prevState.filteredImages.length === 0 && this.state.filteredImages.length > 0) {
-      this.getFilterOptions();
       this.getPanelBodyHeight();
     }
   }
 
-  componentWillUnmount() {
-    if (this.unsubscribeFromStore) {
-      this.unsubscribeFromStore();
-    }
-  }
-
   unsubscribeFromStore: any;
-
   panelTableRef = React.createRef<HTMLDivElement>();
   listRef: List | null = null;
 
@@ -110,41 +94,8 @@ class DebugMeta extends React.PureComponent<Props, State> {
     this.listRef?.forceUpdateGrid();
   }
 
-  getFilterOptions() {
-    const {filteredImages: images} = this.state;
-
-    const filterOptions: FilterOptions = [
-      ...new Set(
-        images.map(image => {
-          const {debug_status, unwind_status} = image;
-          return combineStatus(debug_status, unwind_status);
-        })
-      ),
-    ].map(status => ({
-      id: status,
-      symbol: <StatusTag status={status} />,
-      isChecked: false,
-    }));
-
-    this.setState({filterOptions});
-  }
-
-  getPanelBodyHeight() {
-    const panelTableHeight = this.panelTableRef?.current?.offsetHeight;
-
-    if (!panelTableHeight) {
-      return;
-    }
-
-    this.setState({panelTableHeight});
-  }
-
   setScrollbarSize = ({size}: ScrollbarPresenceParams) => {
     this.setState({scrollbarSize: size});
-  };
-
-  onStoreChange = (store: {filter: string}) => {
-    this.setState({searchTerm: store.filter});
   };
 
   isValidImage(image: Image) {
@@ -161,47 +112,7 @@ class DebugMeta extends React.PureComponent<Props, State> {
     return true;
   }
 
-  getDebugImages() {
-    const {data} = this.props;
-    const {images} = data;
-
-    // There are a bunch of images in debug_meta that are not relevant to this
-    // component. Filter those out to reduce the noise. Most importantly, this
-    // includes proguard images, which are rendered separately.
-    const relevantImages = images.filter(image => this.isValidImage(image));
-
-    // Sort images by their start address. We assume that images have
-    // non-overlapping ranges. Each address is given as hex string (e.g.
-    // "0xbeef").
-    relevantImages.sort(
-      (a, b) => parseAddress(a.image_addr) - parseAddress(b.image_addr)
-    );
-
-    return relevantImages;
-  }
-
-  filterImage(image: Image) {
-    const searchTerm = this.state.searchTerm.trim().toLowerCase();
-
-    if (searchTerm.length < MIN_FILTER_LEN) {
-      // A debug status of `null` indicates that this information is not yet
-      // available in an old event. Default to showing the image.
-      if (image.debug_status !== ImageStackTraceInfo.UNUSED) {
-        return true;
-      }
-
-      // An unwind status of `null` indicates that symbolicator did not unwind.
-      // Ignore the status in this case.
-      if (
-        !isNil(image.unwind_status) &&
-        image.unwind_status !== ImageStackTraceInfo.UNUSED
-      ) {
-        return true;
-      }
-
-      return false;
-    }
-
+  filterImage(image: Image, searchTerm: string) {
     // When searching for an address, check for the address range of the image
     // instead of an exact match.  Note that images cannot be found by index
     // if they are at 0x0.  For those relative addressing has to be used.
@@ -227,6 +138,79 @@ class DebugMeta extends React.PureComponent<Props, State> {
     );
   }
 
+  getRelevantImages() {
+    const {data} = this.props;
+    const {images} = data;
+
+    // There are a bunch of images in debug_meta that are not relevant to this
+    // component. Filter those out to reduce the noise. Most importantly, this
+    // includes proguard images, which are rendered separately.
+    const relevantImages = images.filter(this.isValidImage);
+
+    // Sort images by their start address. We assume that images have
+    // non-overlapping ranges. Each address is given as hex string (e.g.
+    // "0xbeef").
+    relevantImages.sort(
+      (a, b) => parseAddress(a.image_addr) - parseAddress(b.image_addr)
+    );
+
+    const unusedImages: Array<Image> = [];
+
+    const usedImages = relevantImages.filter(image => {
+      if (image.debug_status === ImageStackTraceInfo.UNUSED) {
+        unusedImages.push(image);
+        return false;
+      }
+      return true;
+    });
+
+    const filteredImages = [...usedImages, ...unusedImages];
+
+    const filterOptions = this.getFilterOptions(filteredImages);
+
+    this.setState({
+      filteredImages,
+      filterOptions,
+      filteredImagesByFilter: filteredImages,
+      filteredImagesBySearch: filteredImages,
+    });
+  }
+
+  getFilterOptions(images: Array<Image>): FilterOptions {
+    return [
+      ...new Set(
+        images.map(image => {
+          const {debug_status, unwind_status} = image;
+          return combineStatus(debug_status, unwind_status);
+        })
+      ),
+    ].map(status => ({
+      id: status,
+      symbol: <StatusTag status={status} />,
+      isChecked: false,
+    }));
+  }
+
+  getPanelBodyHeight() {
+    const panelTableHeight = this.panelTableRef?.current?.offsetHeight;
+
+    if (!panelTableHeight) {
+      return;
+    }
+
+    this.setState({panelTableHeight});
+  }
+
+  getListHeight() {
+    const {panelTableHeight} = this.state;
+
+    if (!panelTableHeight || panelTableHeight > PANEL_MAX_HEIGHT) {
+      return PANEL_MAX_HEIGHT;
+    }
+
+    return panelTableHeight;
+  }
+
   getFilteredImagesByFilter(filteredImages: Array<Image>, filterOptions: FilterOptions) {
     const checkedOptions = new Set(
       filterOptions
@@ -240,45 +224,6 @@ class DebugMeta extends React.PureComponent<Props, State> {
 
     return filteredImages.filter(image => checkedOptions.has(image.debug_status));
   }
-
-  filterImages() {
-    const {filterOptions} = this.state;
-    // skip null values indicating invalid debug images
-    const debugImages = this.getDebugImages();
-
-    const filteredImages = debugImages.filter(image => this.filterImage(image));
-
-    const filteredImagesByFilter = this.getFilteredImagesByFilter(
-      filteredImages,
-      filterOptions
-    );
-
-    this.setState({filteredImages, filteredImagesByFilter}, this.updateGrid);
-  }
-
-  getListHeight() {
-    const {panelTableHeight} = this.state;
-
-    if (!panelTableHeight || panelTableHeight > PANEL_MAX_HEIGHT) {
-      return PANEL_MAX_HEIGHT;
-    }
-
-    return panelTableHeight;
-  }
-
-  handleChangeFilter = (filterOptions: FilterOptions) => {
-    const {filteredImages} = this.state;
-    const filteredImagesByFilter = this.getFilteredImagesByFilter(
-      filteredImages,
-      filterOptions
-    );
-
-    this.setState({filterOptions, filteredImagesByFilter}, this.updateGrid);
-  };
-
-  handleChangeSearchTerm = (value = '') => {
-    DebugMetaActions.updateFilter(value);
-  };
 
   handleOpenImageDetailsModal = (
     image: Image,
@@ -303,7 +248,55 @@ class DebugMeta extends React.PureComponent<Props, State> {
     );
   };
 
-  renderRow = ({index, key, parent, style}: ListRowProps) => {
+  handleChangeFilter = (filterOptions: FilterOptions) => {
+    const {filteredImagesBySearch} = this.state;
+    const filteredImagesByFilter = this.getFilteredImagesByFilter(
+      filteredImagesBySearch,
+      filterOptions
+    );
+
+    this.setState({filterOptions, filteredImagesByFilter}, this.updateGrid);
+  };
+
+  handleChangeSearchTerm = (searchTerm = '') => {
+    const {filteredImages, filterOptions} = this.state;
+    const filteredImagesBySearch = filteredImages.filter(image =>
+      this.filterImage(image, searchTerm)
+    );
+    const filteredImagesByFilter = this.getFilteredImagesByFilter(
+      filteredImagesBySearch,
+      filterOptions
+    );
+
+    this.setState({
+      searchTerm,
+      filteredImagesBySearch,
+      filteredImagesByFilter,
+    });
+  };
+
+  handleResetFilter = () => {
+    const {searchTerm, filterOptions} = this.state;
+    this.setState(
+      {
+        filterOptions: filterOptions.map(filterOption => ({
+          ...filterOption,
+          isChecked: false,
+        })),
+      },
+      () => this.handleChangeSearchTerm(searchTerm)
+    );
+  };
+
+  handleResetSearchBar = () => {
+    this.setState(prevState => ({
+      searchTerm: '',
+      filteredImagesByFilter: prevState.filteredImages,
+      filteredImagesBySearch: prevState.filteredImages,
+    }));
+  };
+
+  renderListItem = ({index, key, parent, style}: ListRowProps) => {
     const {filteredImagesByFilter} = this.state;
 
     return (
@@ -348,7 +341,7 @@ class DebugMeta extends React.PureComponent<Props, State> {
             overscanRowCount={5}
             rowCount={images.length}
             rowHeight={cache.rowHeight}
-            rowRenderer={this.renderRow}
+            rowRenderer={this.renderListItem}
             onScrollbarPresenceChange={this.setScrollbarSize}
             width={width}
             isScrolling={false}
@@ -358,13 +351,44 @@ class DebugMeta extends React.PureComponent<Props, State> {
     );
   }
 
+  renderContent() {
+    const {searchTerm, filteredImagesByFilter: images, filterOptions} = this.state;
+
+    if (searchTerm && !images.length) {
+      const hasActiveFilter = filterOptions.find(filterOption => filterOption.isChecked);
+      return (
+        <EmptyMessage
+          icon={<IconWarning size="xl" />}
+          action={
+            hasActiveFilter ? (
+              <Button onClick={this.handleResetFilter} priority="primary">
+                {t('Reset Filter')}
+              </Button>
+            ) : (
+              <Button onClick={this.handleResetSearchBar} priority="primary">
+                {t('Clear Search Bar')}
+              </Button>
+            )
+          }
+        >
+          {t('Sorry, no images match your search query.')}
+        </EmptyMessage>
+      );
+    }
+
+    if (!images.length) {
+      return (
+        <EmptyStateWarning>
+          <p>{t('There are no images to be displayed')}</p>
+        </EmptyStateWarning>
+      );
+    }
+
+    return <div ref={this.panelTableRef}>{this.renderList()}</div>;
+  }
+
   render() {
-    const {
-      searchTerm,
-      filteredImagesByFilter: images,
-      scrollbarSize,
-      filterOptions,
-    } = this.state;
+    const {searchTerm, scrollbarSize, filterOptions} = this.state;
 
     return (
       <StyledEventDataSection
@@ -382,7 +406,7 @@ class DebugMeta extends React.PureComponent<Props, State> {
             <Filter options={filterOptions} onFilter={this.handleChangeFilter} />
             <StyledSearchBar
               query={searchTerm}
-              onChange={this.handleChangeSearchTerm}
+              onChange={value => this.handleChangeSearchTerm(value.trim().toLowerCase())}
               placeholder={t('Search images')}
             />
           </Search>
@@ -397,13 +421,7 @@ class DebugMeta extends React.PureComponent<Props, State> {
             <div>{t('Stacktrace')}</div>
             <div>{t('Debug Image')}</div>
           </StyledPanelHeader>
-          {!images.length ? (
-            <EmptyStateWarning>
-              <p>{t('There are no images to be displayed')}</p>
-            </EmptyStateWarning>
-          ) : (
-            <div ref={this.panelTableRef}>{this.renderList()}</div>
-          )}
+          {this.renderContent()}
         </Panel>
       </StyledEventDataSection>
     );
@@ -444,7 +462,7 @@ const TitleWrapper = styled('div')`
 `;
 
 const Title = styled('h3')`
-  margin-bottom: 0;
+  margin-bottom: 0 !important;
   padding: 0 !important;
   height: 14px;
 `;
