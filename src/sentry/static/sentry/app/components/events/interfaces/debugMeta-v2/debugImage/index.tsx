@@ -12,7 +12,7 @@ import {Image} from 'app/types/debugImage';
 import layout from '../layout';
 import NotAvailable from '../notAvailable';
 import Stacktrace from '../stacktrace';
-import {getFileName} from '../utils';
+import {combineStatus, getFileName} from '../utils';
 
 import Address from './address';
 import StacktraceStatusIcon from './stacktraceStatusIcon';
@@ -31,13 +31,15 @@ type Props = {
 function DebugImage({image, onOpenImageDetailsModal, style}: Props) {
   const {unwind_status, debug_status, code_file} = image;
 
+  const status = combineStatus(debug_status, unwind_status);
+
   const fileName = getFileName(code_file);
   const imageAddress = <Address image={image} />;
 
   return (
     <Wrapper style={style}>
       <StatusColumn>
-        <StatusTag image={image} />
+        <StatusTag status={status} />
       </StatusColumn>
       <ImageColumn>
         <ClipboardTooltip title={code_file} containerDisplayMode="inline-flex">

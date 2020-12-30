@@ -5,7 +5,7 @@ import Button from 'app/components/button';
 import {IconChevron} from 'app/icons';
 import space from 'app/styles/space';
 
-type Props = React.ComponentProps<typeof Button> & {
+type Props = Omit<React.ComponentProps<typeof Button>, 'type' | 'priority'> & {
   /**
    * The fixed prefix text to show in the button eg: 'Sort By'
    */
@@ -22,31 +22,41 @@ type Props = React.ComponentProps<typeof Button> & {
    * Should the bottom border become transparent when open?
    */
   hideBottomBorder?: boolean;
+  /**
+   * Button color
+   */
+  priority?: 'primary' | 'form';
+
   forwardedRef?: React.Ref<typeof Button>;
 };
 
 const DropdownButton = ({
-  isOpen,
   children,
   forwardedRef,
   prefix,
+  isOpen = false,
   showChevron = false,
-  hideBottomBorder = true,
+  hideBottomBorder = false,
+  disabled = false,
+  priority = 'form',
   ...props
-}: Props) => (
-  <StyledButton
-    type="button"
-    priority="form"
-    isOpen={isOpen}
-    hideBottomBorder={hideBottomBorder}
-    ref={forwardedRef}
-    {...props}
-  >
-    {prefix && <LabelText>{prefix}</LabelText>}
-    {children}
-    {showChevron && <StyledChevron size="10px" direction={isOpen ? 'up' : 'down'} />}
-  </StyledButton>
-);
+}: Props) => {
+  return (
+    <StyledButton
+      {...props}
+      type="button"
+      disabled={disabled}
+      priority={priority}
+      isOpen={isOpen}
+      hideBottomBorder={hideBottomBorder}
+      ref={forwardedRef}
+    >
+      {prefix && <LabelText>{prefix}</LabelText>}
+      {children}
+      {showChevron && <StyledChevron size="10px" direction={isOpen ? 'up' : 'down'} />}
+    </StyledButton>
+  );
+};
 
 DropdownButton.defaultProps = {
   showChevron: true,
@@ -57,7 +67,7 @@ const StyledChevron = styled(IconChevron)`
 `;
 
 const StyledButton = styled(Button)<
-  Pick<Props, 'isOpen' | 'disabled' | 'hideBottomBorder'>
+  Required<Pick<Props, 'isOpen' | 'disabled' | 'hideBottomBorder' | 'priority'>>
 >`
   border-bottom-right-radius: ${p => (p.isOpen ? 0 : p.theme.borderRadius)};
   border-bottom-left-radius: ${p => (p.isOpen ? 0 : p.theme.borderRadius)};
@@ -65,14 +75,17 @@ const StyledButton = styled(Button)<
   z-index: 2;
   box-shadow: ${p => (p.isOpen || p.disabled ? 'none' : p.theme.dropShadowLight)};
   border-bottom-color: ${p =>
-    p.isOpen && p.hideBottomBorder ? 'transparent' : p.theme.button.form.border};
+    p.isOpen && p.hideBottomBorder ? 'transparent' : p.theme.button[p.priority].border};
 
   &:active,
   &:focus,
   &:hover {
     border-bottom-color: ${p =>
-      p.isOpen && p.hideBottomBorder ? 'transparent' : p.theme.button.form.borderActive};
+      p.isOpen && p.hideBottomBorder
+        ? 'transparent'
+        : p.theme.button[p.priority].borderActive};
   }
+  ${p => p.isOpen && `border-bottom-left-radius: 0`};
 `;
 
 const LabelText = styled('span')`

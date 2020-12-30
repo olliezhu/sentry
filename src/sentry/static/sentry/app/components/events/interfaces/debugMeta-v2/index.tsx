@@ -23,15 +23,19 @@ import DebugMetaStore, {DebugMetaActions} from 'app/stores/debugMetaStore';
 import overflowEllipsis from 'app/styles/overflowEllipsis';
 import space from 'app/styles/space';
 import {Event, Organization, Project} from 'app/types';
-import {Image} from 'app/types/debugImage';
+import {Image, ImageStackTraceInfo} from 'app/types/debugImage';
 
+import StatusTag from './debugImage/statusTag';
 import DebugImage from './debugImage';
 import DebugImageDetails, {modalCss} from './debugImageDetails';
+import Filter from './filter';
 import layout from './layout';
-import {getFileName, normalizeId} from './utils';
+import {combineStatus, getFileName, normalizeId} from './utils';
 
 const MIN_FILTER_LEN = 3;
 const PANEL_MAX_HEIGHT = 400;
+
+type FilterOptions = React.ComponentProps<typeof Filter>['options'];
 
 type DefaultProps = {
   data: {
@@ -46,8 +50,11 @@ type Props = DefaultProps & {
 };
 
 type State = {
-  filter: string;
+  searchTerm: string;
   filteredImages: Array<Image>;
+  filteredImagesBySearch: Array<Image>;
+  filteredImagesByFilter: Array<Image>;
+  filterOptions: FilterOptions;
   panelTableHeight?: number;
   scrollbarSize?: number;
 };
@@ -63,8 +70,11 @@ class DebugMeta extends React.PureComponent<Props, State> {
   };
 
   state: State = {
-    filter: '',
+    searchTerm: '',
+    filterOptions: [],
     filteredImages: [],
+    filteredImagesByFilter: [],
+    filteredImagesBySearch: [],
   };
 
   componentDidMount() {
@@ -74,11 +84,12 @@ class DebugMeta extends React.PureComponent<Props, State> {
   }
 
   componentDidUpdate(_prevProps: Props, prevState: State) {
-    if (prevState.filter !== this.state.filter) {
+    if (prevState.searchTerm !== this.state.searchTerm) {
       this.filterImages();
     }
 
     if (prevState.filteredImages.length === 0 && this.state.filteredImages.length > 0) {
+      this.getFilterOptions();
       this.getPanelBodyHeight();
     }
   }
@@ -99,6 +110,25 @@ class DebugMeta extends React.PureComponent<Props, State> {
     this.listRef?.forceUpdateGrid();
   }
 
+  getFilterOptions() {
+    const {filteredImages: images} = this.state;
+
+    const filterOptions: FilterOptions = [
+      ...new Set(
+        images.map(image => {
+          const {debug_status, unwind_status} = image;
+          return combineStatus(debug_status, unwind_status);
+        })
+      ),
+    ].map(status => ({
+      id: status,
+      symbol: <StatusTag status={status} />,
+      isChecked: false,
+    }));
+
+    this.setState({filterOptions});
+  }
+
   getPanelBodyHeight() {
     const panelTableHeight = this.panelTableRef?.current?.offsetHeight;
 
@@ -114,24 +144,58 @@ class DebugMeta extends React.PureComponent<Props, State> {
   };
 
   onStoreChange = (store: {filter: string}) => {
-    this.setState({filter: store.filter});
+    this.setState({searchTerm: store.filter});
   };
 
-  filterImage(image: Image) {
-    const {filter} = this.state;
+  isValidImage(image: Image) {
+    // in particular proguard images do not have a code file, skip them
+    if (image === null || image.code_file === null || image.type === 'proguard') {
+      return false;
+    }
 
-    const searchTerm = filter.trim().toLowerCase();
+    if (getFileName(image.code_file) === 'dyld_sim') {
+      // this is only for simulator builds
+      return false;
+    }
+
+    return true;
+  }
+
+  getDebugImages() {
+    const {data} = this.props;
+    const {images} = data;
+
+    // There are a bunch of images in debug_meta that are not relevant to this
+    // component. Filter those out to reduce the noise. Most importantly, this
+    // includes proguard images, which are rendered separately.
+    const relevantImages = images.filter(image => this.isValidImage(image));
+
+    // Sort images by their start address. We assume that images have
+    // non-overlapping ranges. Each address is given as hex string (e.g.
+    // "0xbeef").
+    relevantImages.sort(
+      (a, b) => parseAddress(a.image_addr) - parseAddress(b.image_addr)
+    );
+
+    return relevantImages;
+  }
+
+  filterImage(image: Image) {
+    const searchTerm = this.state.searchTerm.trim().toLowerCase();
 
     if (searchTerm.length < MIN_FILTER_LEN) {
       // A debug status of `null` indicates that this information is not yet
       // available in an old event. Default to showing the image.
-      if (image.debug_status !== 'unused') {
+      if (image.debug_status !== ImageStackTraceInfo.UNUSED) {
         return true;
       }
 
       // An unwind status of `null` indicates that symbolicator did not unwind.
       // Ignore the status in this case.
-      if (!isNil(image.unwind_status) && image.unwind_status !== 'unused') {
+      if (
+        !isNil(image.unwind_status) &&
+        image.unwind_status !== ImageStackTraceInfo.UNUSED
+      ) {
         return true;
       }
 
@@ -163,43 +227,33 @@ class DebugMeta extends React.PureComponent<Props, State> {
     );
   }
 
-  isValidImage(image: Image) {
-    // in particular proguard images do not have a code file, skip them
-    if (image === null || image.code_file === null || image.type === 'proguard') {
-      return false;
+  getFilteredImagesByFilter(filteredImages: Array<Image>, filterOptions: FilterOptions) {
+    const checkedOptions = new Set(
+      filterOptions
+        .filter(filterOption => filterOption.isChecked)
+        .map(option => option.id)
+    );
+
+    if (![...checkedOptions].length) {
+      return filteredImages;
     }
 
-    if (getFileName(image.code_file) === 'dyld_sim') {
-      // this is only for simulator builds
-      return false;
-    }
-
-    return true;
-  }
-
-  getDebugImages() {
-    const {data} = this.props;
-    const {images} = data;
-
-    // There are a bunch of images in debug_meta that are not relevant to this
-    // component. Filter those out to reduce the noise. Most importantly, this
-    // includes proguard images, which are rendered separately.
-    const filtered = images.filter(image => this.isValidImage(image));
-
-    // Sort images by their start address. We assume that images have
-    // non-overlapping ranges. Each address is given as hex string (e.g.
-    // "0xbeef").
-    filtered.sort((a, b) => parseAddress(a.image_addr) - parseAddress(b.image_addr));
-
-    return filtered;
+    return filteredImages.filter(image => checkedOptions.has(image.debug_status));
   }
 
   filterImages() {
+    const {filterOptions} = this.state;
     // skip null values indicating invalid debug images
     const debugImages = this.getDebugImages();
+
     const filteredImages = debugImages.filter(image => this.filterImage(image));
 
-    this.setState({filteredImages}, this.updateGrid);
+    const filteredImagesByFilter = this.getFilteredImagesByFilter(
+      filteredImages,
+      filterOptions
+    );
+
+    this.setState({filteredImages, filteredImagesByFilter}, this.updateGrid);
   }
 
   getListHeight() {
@@ -212,7 +266,17 @@ class DebugMeta extends React.PureComponent<Props, State> {
     return panelTableHeight;
   }
 
-  handleChangeFilter = (value = '') => {
+  handleChangeFilter = (filterOptions: FilterOptions) => {
+    const {filteredImages} = this.state;
+    const filteredImagesByFilter = this.getFilteredImagesByFilter(
+      filteredImages,
+      filterOptions
+    );
+
+    this.setState({filterOptions, filteredImagesByFilter}, this.updateGrid);
+  };
+
+  handleChangeSearchTerm = (value = '') => {
     DebugMetaActions.updateFilter(value);
   };
 
@@ -240,7 +304,7 @@ class DebugMeta extends React.PureComponent<Props, State> {
   };
 
   renderRow = ({index, key, parent, style}: ListRowProps) => {
-    const {filteredImages} = this.state;
+    const {filteredImagesByFilter} = this.state;
 
     return (
       <CellMeasurer
@@ -252,7 +316,7 @@ class DebugMeta extends React.PureComponent<Props, State> {
       >
         <DebugImage
           style={style}
-          image={filteredImages[index]}
+          image={filteredImagesByFilter[index]}
           onOpenImageDetailsModal={this.handleOpenImageDetailsModal}
         />
       </CellMeasurer>
@@ -260,7 +324,7 @@ class DebugMeta extends React.PureComponent<Props, State> {
   };
 
   renderList() {
-    const {filteredImages: images, panelTableHeight} = this.state;
+    const {filteredImagesByFilter: images, panelTableHeight} = this.state;
 
     if (!panelTableHeight) {
       return images.map(image => (
@@ -295,7 +359,12 @@ class DebugMeta extends React.PureComponent<Props, State> {
   }
 
   render() {
-    const {filter, filteredImages: images, scrollbarSize} = this.state;
+    const {
+      searchTerm,
+      filteredImagesByFilter: images,
+      scrollbarSize,
+      filterOptions,
+    } = this.state;
 
     return (
       <StyledEventDataSection
@@ -309,15 +378,14 @@ class DebugMeta extends React.PureComponent<Props, State> {
           </TitleWrapper>
         }
         actions={
-          <ToolbarWrapper>
-            <SearchInputWrapper>
-              <StyledSearchBar
-                query={filter}
-                onChange={this.handleChangeFilter}
-                placeholder={t('Search images')}
-              />
-            </SearchInputWrapper>
-          </ToolbarWrapper>
+          <Search>
+            <Filter options={filterOptions} onFilter={this.handleChangeFilter} />
+            <StyledSearchBar
+              query={searchTerm}
+              onChange={this.handleChangeSearchTerm}
+              placeholder={t('Search images')}
+            />
+          </Search>
         }
         wrapTitle={false}
         isCentered
@@ -388,44 +456,39 @@ const StyledList = styled(List)<{height: number}>`
   outline: none;
 `;
 
-const ToolbarWrapper = styled('div')`
+const Search = styled('div')`
   display: flex;
-  align-items: center;
-  @media (max-width: ${p => p.theme.breakpoints[0]}) {
-    flex-wrap: wrap;
-    margin-top: ${space(1)};
-  }
-`;
-
-const SearchInputWrapper = styled('div')`
   width: 100%;
+  margin-top: ${space(1)};
 
-  @media (max-width: ${p => p.theme.breakpoints[0]}) {
-    width: 100%;
-    max-width: 100%;
-    margin-top: ${space(1)};
-  }
-
-  @media (min-width: ${p => p.theme.breakpoints[0]}) and (max-width: ${p =>
-      p.theme.breakpoints[3]}) {
-    max-width: 180px;
-    display: inline-block;
+  @media (min-width: ${props => props.theme.breakpoints[1]}) {
+    width: 400px;
+    margin-top: 0;
   }
 
   @media (min-width: ${props => props.theme.breakpoints[3]}) {
-    width: 330px;
-    max-width: none;
-  }
-
-  @media (min-width: 1550px) {
-    width: 510px;
+    width: 600px;
   }
 `;
 
 // TODO(matej): remove this once we refactor SearchBar to not use css classes
 // - it could accept size as a prop
 const StyledSearchBar = styled(SearchBar)`
+  width: 100%;
+  position: relative;
+  z-index: ${p => p.theme.zIndex.dropdownAutocomplete.actor};
   .search-input {
-    height: 30px;
+    height: 32px;
+  }
+  .search-input,
+  .search-input:focus {
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+  }
+  .search-clear-form,
+  .search-input-icon {
+    height: 32px;
+    display: flex;
+    align-items: center;
   }
 `;

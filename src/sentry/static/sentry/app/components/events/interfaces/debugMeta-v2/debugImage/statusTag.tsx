@@ -2,18 +2,13 @@ import React from 'react';
 
 import Tag from 'app/components/tag';
 import {t} from 'app/locale';
-import {Image, ImageStackTraceInfo} from 'app/types/debugImage';
-
-import {combineStatus} from '../utils';
+import {ImageStackTraceInfo} from 'app/types/debugImage';
 
 type Props = {
-  image: Image;
+  status: ImageStackTraceInfo;
 };
 
-function StatusTag({image}: Props) {
-  const {debug_status, unwind_status} = image;
-  const status = combineStatus(debug_status, unwind_status);
-
+function StatusTag({status}: Props) {
   switch (status) {
     case ImageStackTraceInfo.OTHER:
     case ImageStackTraceInfo.FETCHING_FAILED:
