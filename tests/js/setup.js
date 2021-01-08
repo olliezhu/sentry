@@ -171,7 +171,7 @@ window.TestStubs = {
 
   location: (params = {}) => ({
     query: {},
-    pathame: '/mock-pathname/',
+    pathname: '/mock-pathname/',
     ...params,
   }),
 
